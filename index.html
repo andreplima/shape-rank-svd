@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lattice Coverage &amp; SVD Explorer</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.3/dist/polygon-clipping.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ml-matrix@6.12.2/matrix.umd.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f8f8f8;
+      color: #222;
+    }
+    #app { display: flex; flex-direction: row; width: 100vw; height: 100vh; }
+
+    /* ===================== LEFT PANEL ===================== */
+    #left-panel {
+      flex: 0 0 30%;
+      border-right: 1px solid #ddd;
+      padding: 14px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #ffffff;
+      overflow-y: auto;
+      gap: 10px;
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #444;
+      align-self: flex-start;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    #left-svg-container { width: 100%; aspect-ratio: 1 / 1; }
+    #left-svg { width: 100%; height: 100%; display: block; }
+
+    /* Left-view SVG elements */
+    .lattice-line { stroke: #d8d8d8; stroke-width: 0.8; shape-rendering: crispEdges; }
+    .unit-square  { fill: none; stroke: #555; stroke-width: 1.2; shape-rendering: crispEdges; }
+    .polygon-edge {
+      fill: none; stroke: #d400a0; stroke-width: 1;
+      stroke-linejoin: miter; stroke-linecap: butt; pointer-events: none;
+    }
+    .cell-full    { fill: #d400a0; fill-opacity: 0.18; shape-rendering: crispEdges; pointer-events: none; }
+    .cell-partial { fill: url(#hatch-pattern); shape-rendering: crispEdges; pointer-events: none; }
+    .vertex-marker { stroke: #fff; stroke-width: 1.5; }
+    .vertex-origin { fill: #111; cursor: not-allowed; }
+    .vertex-free   { fill: #2b7cff; cursor: grab; }
+    .vertex-free.dragging { cursor: grabbing; opacity: 0.55; }
+
+    /* Sliders */
+    #controls { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+    .slider-row {
+      display: grid; grid-template-columns: 36px 1fr 32px;
+      align-items: center; gap: 8px; font-size: 12px;
+    }
+    .slider-row label { font-weight: 600; }
+    .slider-row input[type="range"] { width: 100%; }
+    .slider-row .value { text-align: right; font-variant-numeric: tabular-nums; color: #666; }
+
+    /* Status + reset row */
+    #bottom-controls {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    #status { font-size: 11px; color: #b00020; flex: 1; min-height: 16px; }
+    #status.ok { color: #2e7d32; }
+    #reset-btn {
+      font-size: 11px; padding: 3px 10px;
+      border: 1px solid #ccc; border-radius: 3px;
+      background: #fafafa; cursor: pointer; color: #444; white-space: nowrap;
+    }
+    #reset-btn:hover { background: #f0f0f0; }
+
+    /* Legend */
+    #legend { width: 100%; font-size: 11px; color: #666; display: flex; flex-direction: column; gap: 3px; }
+    .legend-row { display: flex; align-items: center; gap: 6px; }
+    .legend-swatch { width: 13px; height: 13px; border: 1px solid #ccc; }
+    .legend-swatch.full    { background: rgba(212,0,160,0.18); }
+    .legend-swatch.partial {
+      background-image: repeating-linear-gradient(
+        45deg, rgba(212,0,160,0.5) 0px, rgba(212,0,160,0.5) 1.5px,
+        transparent 1.5px, transparent 4px);
+    }
+    .legend-swatch.empty { background: #fff; }
+
+    /* ===================== RIGHT PANEL ===================== */
+    #right-panel {
+      flex: 0 0 70%;
+      padding: 14px;
+      background: #ffffff;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Colorbar */
+    #colorbar-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; color: #666;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #colorbar { flex-grow: 1; height: 12px; border: 1px solid #ccc; }
+    #colorbar-row .label { white-space: nowrap; }
+    #colorbar-mode-note { font-size: 11px; color: #888; font-style: italic; }
+
+    /* Normalize toggle */
+    #normalize-row {
+      display: flex; align-items: center; gap: 8px; font-size: 12px; color: #444;
+    }
+    #normalize-row label { cursor: pointer; user-select: none; }
+    #normalize-cb { cursor: pointer; }
+
+    /* Component grid */
+    #components-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      grid-template-rows: repeat(2, auto);
+      gap: 10px;
+    }
+    .component-slot {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 3px; padding: 5px;
+      border: 1px solid #eaeaea;
+      border-top-width: 3px;      /* colored accent set dynamically */
+      background: #fff; border-radius: 4px;
+    }
+    .component-slot.absent { opacity: 0.38; background: #fafafa; }
+    .component-label {
+      font-size: 10px; color: #555;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .component-canvas {
+      width: 100%; aspect-ratio: 1 / 1; background: #fff;
+      display: flex; align-items: center; justify-content: center;
+      color: #bbb; font-size: 10px; font-style: italic; overflow: hidden;
+    }
+    .component-canvas.absent { border: 1px dashed #ddd; }
+    .component-canvas svg { width: 100%; height: 100%; }
+    .component-sigma {
+      font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-align: center; line-height: 1.3;
+    }
+    .component-sigma .frac { color: #999; font-size: 9px; }
+    .component-sigma.absent { color: #bbb; }
+
+    /* Scree plot */
+    #scree-container {
+      border: 1px solid #eaeaea; border-radius: 4px; padding: 10px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    #scree-header { display: flex; justify-content: space-between; align-items: center; }
+    #scree-header .title { font-size: 12px; font-weight: 600; color: #333; }
+    #scree-toggle-btn {
+      font-size: 11px; padding: 3px 10px;
+      border: 1px solid #ccc; border-radius: 3px;
+      background: #fafafa; cursor: pointer; color: #333;
+    }
+    #scree-toggle-btn:hover { background: #f0f0f0; }
+    #scree-svg-container { width: 100%; }
+    .scree-axis path, .scree-axis line { stroke: #bbb; }
+    .scree-axis text { fill: #666; font-size: 10px; }
+    .scree-axis-label { fill: #666; font-size: 11px; font-style: italic; }
+    .scree-gridline { stroke: #efefef; stroke-dasharray: 2,2; }
+    .scree-bar { stroke: none; }
+    .scree-bar.stub { opacity: 0.22; }
+
+    /* Exercises panel */
+    #exercises-details {
+      border: 1px solid #eaeaea; border-radius: 4px;
+    }
+    #exercises-details summary {
+      cursor: pointer; padding: 8px 12px;
+      font-size: 12px; font-weight: 600; color: #444;
+      list-style: none; display: flex; justify-content: space-between; align-items: center;
+    }
+    #exercises-details summary::-webkit-details-marker { display: none; }
+    #exercises-details summary::after { content: "▸"; font-size: 10px; color: #888; }
+    #exercises-details[open] summary::after { content: "▾"; }
+    #exercises-details[open] summary { border-bottom: 1px solid #eaeaea; }
+    #exercises-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 14px; }
+    .exercise {
+      font-size: 12px; color: #333; line-height: 1.5;
+    }
+    .exercise .ex-number {
+      font-weight: 700; color: #2b7cff; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .exercise .ex-prompt { margin: 2px 0 4px; }
+    .exercise details.hint summary {
+      cursor: pointer; font-size: 11px; color: #888; font-style: italic;
+      list-style: none; display: inline;
+    }
+    .exercise details.hint[open] .hint-body {
+      margin-top: 4px; padding: 6px 10px;
+      background: #f8f8f8; border-left: 2px solid #2b7cff;
+      font-size: 11px; color: #555; line-height: 1.5; border-radius: 0 3px 3px 0;
+    }
+
+    /* Numeric details (lightweight debug) */
+    #numeric-details {
+      border: 1px solid #eaeaea; border-radius: 4px;
+    }
+    #numeric-details summary {
+      cursor: pointer; padding: 8px 12px;
+      font-size: 12px; font-weight: 600; color: #444;
+      list-style: none; display: flex; justify-content: space-between; align-items: center;
+    }
+    #numeric-details summary::-webkit-details-marker { display: none; }
+    #numeric-details summary::after { content: "▸"; font-size: 10px; color: #888; }
+    #numeric-details[open] summary::after { content: "▾"; }
+    #numeric-details[open] summary { border-bottom: 1px solid #eaeaea; }
+    #numeric-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 11px; }
+    #numeric-body .meta {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #555; white-space: pre; line-height: 1.6;
+    }
+    #numeric-body .sub-heading {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px; font-weight: 600; color: #444;
+      margin-top: 8px; margin-bottom: 4px;
+    }
+    #numeric-body .sub-note {
+      font-weight: 400; color: #888; font-size: 11px;
+    }
+    #numeric-body table { border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+    #numeric-body th, #numeric-body td {
+      padding: 3px 7px; text-align: right; border: 1px solid #eee; min-width: 50px;
+    }
+    #numeric-body th { background: #f7f7f7; color: #777; font-weight: 500; }
+    #numeric-body td.cell-empty   { color: #bbb; }
+    #numeric-body td.cell-full    { color: #222; background: rgba(212,0,160,0.18); font-weight: 600; }
+    #numeric-body td.cell-partial { color: #222; background: rgba(212,0,160,0.08); }
+    #numeric-body td.sum, #numeric-body th.sum { background: #f0f0f0; font-weight: 600; }
+    #numeric-body .corner { background: #e8e8e8; }
+    #sigma-row td { padding: 3px 7px; text-align: right; border: 1px solid #eee; min-width: 70px; }
+    #sigma-row th { padding: 3px 7px; background: #f7f7f7; color: #777; font-weight: 500; border: 1px solid #eee; }
+    .sig-present { font-weight: 600; color: #222; background: rgba(212,0,160,0.08); }
+    .sig-zero    { color: #bbb; }
+    .check-ok    { color: #2e7d32; font-weight: 600; }
+    .check-fail  { color: #b00020; font-weight: 600; }
+
+    /* Tooltip */
+    #heatmap-tooltip {
+      position: fixed; pointer-events: none;
+      background: rgba(0,0,0,0.8); color: #fff;
+      padding: 4px 8px; border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px; display: none; z-index: 1000; white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ==================== LEFT PANEL ==================== -->
+  <div id="left-panel">
+    <div class="panel-title">Shape &amp; lattice</div>
+
+    <div id="left-svg-container">
+      <svg id="left-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <pattern id="hatch-pattern" patternUnits="userSpaceOnUse"
+                   width="2" height="2" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="2"
+                  stroke="#d400a0" stroke-width="1" stroke-opacity="0.5"/>
+          </pattern>
+        </defs>
+      </svg>
+    </div>
+
+    <div id="controls">
+      <div class="slider-row">
+        <label for="slider-nx">n<sub>x</sub></label>
+        <input type="range" id="slider-nx" min="2" max="10" step="1" value="5">
+        <span class="value" id="value-nx">5</span>
+      </div>
+      <div class="slider-row">
+        <label for="slider-ny">n<sub>y</sub></label>
+        <input type="range" id="slider-ny" min="2" max="10" step="1" value="5">
+        <span class="value" id="value-ny">5</span>
+      </div>
+    </div>
+
+    <div id="bottom-controls">
+      <div id="status">&nbsp;</div>
+      <button id="reset-btn">↺ Reset</button>
+    </div>
+
+    <div id="legend">
+      <div class="legend-row"><span class="legend-swatch full"></span><span>Fully covered</span></div>
+      <div class="legend-row"><span class="legend-swatch partial"></span><span>Partially covered</span></div>
+      <div class="legend-row"><span class="legend-swatch empty"></span><span>Uncovered</span></div>
+    </div>
+  </div>
+
+  <!-- ==================== RIGHT PANEL ==================== -->
+  <div id="right-panel">
+    <div class="panel-title">SVD decomposition</div>
+
+    <!-- Colorbar + normalize toggle -->
+    <div>
+      <div id="colorbar-row">
+        <span class="label" id="colorbar-min">−M</span>
+        <canvas id="colorbar" width="400" height="12"></canvas>
+        <span class="label" id="colorbar-max">+M</span>
+      </div>
+      <div id="colorbar-mode-note">Shared scale &mdash; power-law mapping (γ = ½). Zero = gray. White = absent.</div>
+      <div id="normalize-row" style="margin-top:5px;">
+        <input type="checkbox" id="normalize-cb">
+        <label for="normalize-cb">Normalize each component independently</label>
+      </div>
+    </div>
+
+    <!-- Component heatmaps (2 × 5) -->
+    <div id="components-grid"></div>
+
+    <!-- Scree plot -->
+    <div id="scree-container">
+      <div id="scree-header">
+        <span class="title">Scree plot — σ<sub>k</sub> vs k</span>
+        <button id="scree-toggle-btn">Switch to log scale</button>
+      </div>
+      <div id="scree-svg-container"></div>
+    </div>
+
+    <!-- Exercises -->
+    <details id="exercises-details">
+      <summary>Exercises</summary>
+      <div id="exercises-body">
+
+        <div class="exercise">
+          <div class="ex-number">Exercise 1 — The rank-1 case</div>
+          <div class="ex-prompt">
+            Arrange the four vertices so that the polygon is an <em>axis-aligned rectangle</em>
+            with both pairs of sides aligned with the lattice lines. Observe the scree plot and the
+            component heatmaps. How many singular values are meaningfully nonzero? What do the
+            heatmaps for k ≥ 1 look like, and why?
+          </div>
+          <details class="hint">
+            <summary>Show hint</summary>
+            <div class="hint-body">
+              An axis-aligned rectangle is a Cartesian product of two intervals,
+              so its coverage matrix factors as an outer product
+              A = <b>u</b><b>v</b><sup>T</sup> — a rank-1 matrix.
+              Exactly one singular value is nonzero (σ<sub>0</sub> = ‖A‖<sub>F</sub>).
+              The heatmaps for k ≥ 1 are pure gray because their entries are at machine epsilon.
+            </div>
+          </details>
+        </div>
+
+        <div class="exercise">
+          <div class="ex-number">Exercise 2 — Breaking separability</div>
+          <div class="ex-prompt">
+            Start from the axis-aligned rectangle of Exercise 1. Drag one vertex sideways
+            (keeping it on a lattice joint) to turn the rectangle into a <em>parallelogram</em>.
+            Watch the scree plot as you drag. Which singular values change? Does the spectrum
+            decay quickly or slowly after σ<sub>0</sub>? Toggle between linear and log scale
+            to get a clearer picture.
+          </div>
+          <details class="hint">
+            <summary>Show hint</summary>
+            <div class="hint-body">
+              Shearing introduces a coordinate-mixing constraint (the slanted edge couples x and y),
+              which breaks the outer-product structure. A second singular value σ<sub>1</sub>
+              appears, capturing the shear correction. The ratio σ<sub>1</sub>/σ<sub>0</sub>
+              grows as the shear increases. The spectrum still decays quickly — the parallelogram
+              is "almost" rank-1.
+            </div>
+          </details>
+        </div>
+
+        <div class="exercise">
+          <div class="ex-number">Exercise 3 — The triangle</div>
+          <div class="ex-prompt">
+            Make three of the four vertices collinear so that the polygon degenerates into a
+            <em>triangle</em>. Compare the singular value spectrum with the parallelogram case.
+            Is the effective rank higher or lower? Enable "Normalize each component independently"
+            and inspect the structure of the higher-index heatmaps — what spatial patterns do you see?
+          </div>
+          <details class="hint">
+            <summary>Show hint</summary>
+            <div class="hint-body">
+              A triangle has one non-axis-aligned edge (the hypotenuse), which introduces
+              a coordinate-mixing constraint absent in the parallelogram. The spectrum
+              decays more slowly — more singular values are meaningfully nonzero.
+              The higher-index heatmaps show progressively finer spatial patterns,
+              analogous to higher Fourier modes correcting the low-frequency approximation.
+            </div>
+          </details>
+        </div>
+
+        <div class="exercise">
+          <div class="ex-number">Exercise 4 — Resolution and rank</div>
+          <div class="ex-prompt">
+            Fix the polygon as the default parallelogram. Increase n<sub>x</sub> and n<sub>y</sub>
+            from 2 to 10 and observe how the effective rank (number of nonzero σ<sub>k</sub>)
+            changes. Does the spectrum become richer or sparser as the lattice gets finer?
+            What does this tell you about the relationship between lattice resolution and
+            the complexity of the coverage matrix?
+          </div>
+          <details class="hint">
+            <summary>Show hint</summary>
+            <div class="hint-body">
+              As n increases, more cells straddle the slanted edge, introducing more
+              distinct partial-coverage values. The coverage matrix can support up to
+              min(n<sub>x</sub>, n<sub>y</sub>) singular values, and more of them become
+              meaningful at higher resolution. At low n (coarse lattice), the matrix is
+              nearly rank-1 even for a parallelogram, because there are too few boundary
+              cells to generate complex structure.
+            </div>
+          </details>
+        </div>
+
+      </div>
+    </details>
+
+    <!-- Numeric details (lightweight debug) -->
+    <details id="numeric-details">
+      <summary>Numeric details</summary>
+      <div id="numeric-body">
+        <div class="meta" id="numeric-meta"></div>
+        <div id="numeric-matrix-container"></div>
+        <div id="numeric-sigma-container"></div>
+        <div id="numeric-uv-container"></div>
+      </div>
+    </details>
+
+  </div><!-- end right-panel -->
+</div><!-- end app -->
+
+<div id="heatmap-tooltip"></div>
+
+<script>
+// =============================================================================
+// Constants and initial state
+// =============================================================================
+const MAX_SLOTS  = 10;
+const GAMMA      = 0.5;
+const SLOT_COLORS = d3.schemeTableau10;
+const STUB_THRESH = 1e-12;
+
+// Default / reset vertex positions: a non-trivial parallelogram
+// so the opening state has an interesting spectrum.
+const DEFAULT_VERTICES = () => [
+  { x: 0,   y: 0,   role: "origin" },
+  { x: 4/5, y: 0,   role: "free"   },
+  { x: 1,   y: 4/5, role: "free"   },
+  { x: 1/5, y: 4/5, role: "free"   },
+];
+const DEFAULT_NX = 5, DEFAULT_NY = 5;
+
+const state = {
+  nx: DEFAULT_NX,
+  ny: DEFAULT_NY,
+  vertices: DEFAULT_VERTICES(),
+  normalizeIndependently: false,
+  logScale: false,
+};
+
+// =============================================================================
+// Left-view SVG setup
+// =============================================================================
+const VIEW = 100, PAD = 6;
+const xScale    = d3.scaleLinear().domain([0,1]).range([PAD, VIEW - PAD]);
+const yScale    = d3.scaleLinear().domain([0,1]).range([VIEW - PAD, PAD]);
+const xScaleInv = d3.scaleLinear().domain([PAD, VIEW - PAD]).range([0,1]);
+const yScaleInv = d3.scaleLinear().domain([VIEW - PAD, PAD]).range([0,1]);
+
+const leftSVG     = d3.select("#left-svg");
+const latticeGrp  = leftSVG.append("g");
+const cellGrp     = leftSVG.append("g");
+const frameGrp    = leftSVG.append("g");
+const polygonGrp  = leftSVG.append("g");
+const vertexGrp   = leftSVG.append("g");
+
+frameGrp.append("rect").attr("class","unit-square")
+  .attr("x",xScale(0)).attr("y",yScale(1))
+  .attr("width",xScale(1)-xScale(0)).attr("height",yScale(0)-yScale(1));
+
+// =============================================================================
+// Geometry helpers
+// =============================================================================
+function cross(a,b,c){ return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x); }
+function collinear(a,b,c){ return Math.abs(cross(a,b,c))<1e-12; }
+function allFourCollinear(v){ return collinear(v[0],v[1],v[2])&&collinear(v[0],v[1],v[3]); }
+function anyCoincident(v){
+  for(let i=0;i<v.length;i++) for(let j=i+1;j<v.length;j++)
+    if(v[i].x===v[j].x&&v[i].y===v[j].y) return true;
+  return false;
+}
+function sortCCW(v){
+  const cx=(v[0].x+v[1].x+v[2].x+v[3].x)/4,cy=(v[0].y+v[1].y+v[2].y+v[3].y)/4;
+  const ang=p=>Math.atan2(p.y-cy,p.x-cx),oa=ang(v[0]);
+  const free=v.slice(1).map(p=>({v:p,a:((ang(p)-oa)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)}));
+  free.sort((a,b)=>a.a-b.a);
+  return [v[0],free[0].v,free[1].v,free[2].v];
+}
+function validate(v){
+  if(anyCoincident(v)) return {valid:false,reason:"Two vertices would coincide.",sorted:null};
+  if(allFourCollinear(v)) return {valid:false,reason:"All four vertices would be collinear.",sorted:null};
+  return {valid:true,reason:"",sorted:sortCCW(v)};
+}
+function snap(x,y){
+  const xc=Math.max(0,Math.min(1,x)),yc=Math.max(0,Math.min(1,y));
+  return {x:Math.round(xc*state.nx)/state.nx,y:Math.round(yc*state.ny)/state.ny};
+}
+
+// =============================================================================
+// Polygon clipping + coverage
+// =============================================================================
+function verticesToPC(verts){ const r=verts.map(v=>[v.x,v.y]); r.push([verts[0].x,verts[0].y]); return [r]; }
+function cellToPC(i,j,ax,ay){
+  const x0=i*ax,x1=(i+1)*ax,y0=j*ay,y1=(j+1)*ay;
+  return [[[x0,y0],[x1,y0],[x1,y1],[x0,y1],[x0,y0]]];
+}
+function ringArea(r){ let s=0; const n=r.length; for(let k=0;k<n-1;k++) s+=r[k][0]*r[k+1][1]-r[k+1][0]*r[k][1]; if(r[0][0]!==r[n-1][0]||r[0][1]!==r[n-1][1]) s+=r[n-1][0]*r[0][1]-r[0][0]*r[n-1][1]; return s/2; }
+function mpArea(mp){ let t=0; for(const p of mp){ t+=Math.abs(ringArea(p[0])); for(let h=1;h<p.length;h++) t-=Math.abs(ringArea(p[h])); } return t; }
+
+function computeCoverage(){
+  const ax=1/state.nx,ay=1/state.ny,cellArea=ax*ay,TOL=1e-9*cellArea;
+  const V=verticesToPC(state.vertices),A=[],categories=[];
+  for(let i=0;i<state.nx;i++){
+    const cA=[],cC=[];
+    for(let j=0;j<state.ny;j++){
+      const C=cellToPC(i,j,ax,ay);
+      let area; try{ area=mpArea(polygonClipping.intersection(V,C)); } catch{ area=0; }
+      if(area<0) area=0; if(area>cellArea) area=cellArea;
+      cA.push(area); cC.push(area<=TOL?"empty":(area>=cellArea-TOL?"full":"partial"));
+    }
+    A.push(cA); categories.push(cC);
+  }
+  return {A,categories,ax,ay,cellArea};
+}
+
+// =============================================================================
+// SVD
+// =============================================================================
+function computeSVD(A,nx,ny){
+  // Build M as a plain 2D array: M[j][i] = A[i][j].  Dimensions: ny x nx.
+  const M=[];
+  for(let j=0;j<ny;j++){ const row=[]; for(let i=0;i<nx;i++) row.push(A[i][j]); M.push(row); }
+  try{
+    // ml-matrix exposes the UMD global as `mlMatrix`.
+    const Mmat = new mlMatrix.Matrix(M);
+    // autoTranspose makes the decomposition numerically robust when nx > ny
+    // (i.e. the matrix is wider than tall). With it enabled, we always get the
+    // thin form U (ny x r) and V (nx x r), where r = min(nx, ny).
+    const svd = new mlMatrix.SingularValueDecomposition(Mmat, { autoTranspose: true });
+    const S = svd.diagonal;
+    // Floor tiny negative values (shouldn't happen, but be defensive).
+    for(let k=0;k<S.length;k++) if(S[k]<0) S[k]=0;
+    const U = svd.leftSingularVectors.to2DArray();   // ny x r
+    const V = svd.rightSingularVectors.to2DArray();  // nx x r
+    return { M, U, S, V, r: S.length };
+  } catch(e){
+    console.error("SVD failed:", e);
+    return null;
+  }
+}
+function reconstructFromSVD(U,S,V){
+  const ny=U.length,nx=V.length,r=S.length,Mrec=[];
+  for(let j=0;j<ny;j++){
+    const row=new Array(nx).fill(0);
+    for(let i=0;i<nx;i++) for(let k=0;k<r;k++) row[i]+=S[k]*U[j][k]*V[i][k];
+    Mrec.push(row);
+  }
+  return Mrec;
+}
+function maxAbsDiff(A,B){ let m=0; for(let r=0;r<A.length;r++) for(let c=0;c<A[0].length;c++){ const d=Math.abs(A[r][c]-B[r][c]); if(d>m) m=d; } return m; }
+function effectiveRank(S,tol){ if(!S.length) return 0; const thr=tol*S[0]; let r=0; for(const s of S) if(s>thr) r++; return r; }
+function componentMatrix(svd,k){
+  const {U,S,V}=svd,ny=U.length,nx=V.length,s=S[k],C=[];
+  for(let j=0;j<ny;j++){ const row=new Array(nx); for(let i=0;i<nx;i++) row[i]=s*U[j][k]*V[i][k]; C.push(row); }
+  return C;
+}
+
+// =============================================================================
+// Colormap
+// =============================================================================
+const BLUE=[0x21,0x66,0xac],GRAY=[0xf2,0xf2,0xf2],ORANGE=[0xd6,0x60,0x4d];
+function toHex2(n){ const s=Math.round(Math.max(0,Math.min(255,n))).toString(16); return s.length===1?"0"+s:s; }
+function lerpRGB(a,b,t){ return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]; }
+function colormap(t){
+  if(!isFinite(t)) t=0; t=Math.max(-1,Math.min(1,t));
+  const rgb=t<0?lerpRGB(GRAY,BLUE,-t):lerpRGB(GRAY,ORANGE,t);
+  return "#"+toHex2(rgb[0])+toHex2(rgb[1])+toHex2(rgb[2]);
+}
+function powerMap(t){ return t===0?0:Math.sign(t)*Math.pow(Math.abs(t),GAMMA); }
+
+// =============================================================================
+// Formatting
+// =============================================================================
+function fmtSci(x){ if(Math.abs(x)<1e-300) return "0"; return x.toExponential(2); }
+function fmt(x,d){ d=d||4; if(Math.abs(x)<1e-10) return "0"; return x.toFixed(d); }
+function fracStr_(x){ if(x>=0.01) return (x*100).toFixed(2)+"%"; if(x>0) return x.toExponential(2); return "0"; }
+
+// =============================================================================
+// Tooltip
+// =============================================================================
+const tooltip=document.getElementById("heatmap-tooltip");
+function showTooltip(ev,html){ tooltip.innerHTML=html; tooltip.style.display="block"; tooltip.style.left=(ev.clientX+14)+"px"; tooltip.style.top=(ev.clientY+14)+"px"; }
+function hideTooltip(){ tooltip.style.display="none"; }
+
+// =============================================================================
+// Colorbar
+// =============================================================================
+const colorbarCanvas=document.getElementById("colorbar");
+const colorbarCtx=colorbarCanvas.getContext("2d");
+let colorbarDrawn=false;
+function drawColorbar(){
+  if(colorbarDrawn) return;
+  const w=colorbarCanvas.width,h=colorbarCanvas.height;
+  const img=colorbarCtx.createImageData(w,h);
+  for(let x=0;x<w;x++){
+    const t=-1+2*(x/(w-1)),c=colormap(t);
+    const r=parseInt(c.substr(1,2),16),g=parseInt(c.substr(3,2),16),b=parseInt(c.substr(5,2),16);
+    for(let y=0;y<h;y++){ const idx=(y*w+x)*4; img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255; }
+  }
+  colorbarCtx.putImageData(img,0,0);
+  colorbarDrawn=true;
+}
+function updateColorbarLabels(M_global,perComponent){
+  if(perComponent){
+    document.getElementById("colorbar-min").textContent="per-component";
+    document.getElementById("colorbar-max").textContent="scale";
+    document.getElementById("colorbar-mode-note").textContent=
+      "Per-component scale — each heatmap normalized independently. Magnitudes are not comparable across components.";
+  } else {
+    document.getElementById("colorbar-min").textContent="−"+fmtSci(M_global);
+    document.getElementById("colorbar-max").textContent="+"+fmtSci(M_global);
+    document.getElementById("colorbar-mode-note").textContent=
+      "Shared scale — power-law mapping (γ = ½). Zero = gray. White = absent.";
+  }
+}
+
+// =============================================================================
+// Left-view render
+// =============================================================================
+function renderLattice(){
+  const vL=d3.range(0,state.nx+1).map(i=>({x1:xScale(i/state.nx),y1:yScale(0),x2:xScale(i/state.nx),y2:yScale(1)}));
+  const hL=d3.range(0,state.ny+1).map(j=>({x1:xScale(0),y1:yScale(j/state.ny),x2:xScale(1),y2:yScale(j/state.ny)}));
+  const sel=latticeGrp.selectAll("line").data(vL.concat(hL));
+  sel.enter().append("line").attr("class","lattice-line").merge(sel)
+    .attr("x1",d=>d.x1).attr("y1",d=>d.y1).attr("x2",d=>d.x2).attr("y2",d=>d.y2);
+  sel.exit().remove();
+}
+function renderCells(categories){
+  const ax=1/state.nx,ay=1/state.ny;
+  const cells=[];
+  for(let i=0;i<state.nx;i++) for(let j=0;j<state.ny;j++)
+    if(categories[i][j]!=="empty") cells.push({i,j,cat:categories[i][j]});
+  const sel=cellGrp.selectAll("rect").data(cells,d=>d.i+","+d.j);
+  sel.enter().append("rect").merge(sel)
+    .attr("class",d=>d.cat==="full"?"cell-full":"cell-partial")
+    .attr("x",d=>xScale(d.i*ax)).attr("y",d=>yScale((d.j+1)*ay))
+    .attr("width",d=>xScale((d.i+1)*ax)-xScale(d.i*ax))
+    .attr("height",d=>yScale(d.j*ay)-yScale((d.j+1)*ay));
+  sel.exit().remove();
+}
+function renderPolygon(){
+  const pts=state.vertices.map(v=>`${xScale(v.x)},${yScale(v.y)}`).join(" ");
+  let p=polygonGrp.select("polygon.polygon-edge");
+  if(p.empty()) p=polygonGrp.append("polygon").attr("class","polygon-edge");
+  p.attr("points",pts);
+}
+function renderVertices(){
+  const sel=vertexGrp.selectAll("circle").data(state.vertices,(d,i)=>i);
+  sel.enter().append("circle").attr("r",2.4).merge(sel)
+    .attr("class",d=>"vertex-marker "+(d.role==="origin"?"vertex-origin":"vertex-free"))
+    .attr("cx",d=>xScale(d.x)).attr("cy",d=>yScale(d.y));
+  sel.exit().remove();
+  vertexGrp.selectAll("circle.vertex-free").call(dragBehavior);
+}
+
+// =============================================================================
+// Component heatmaps
+// =============================================================================
+function buildHeatmapSVG(Ck,nx,ny,M,k){
+  const svgEl=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svgEl.setAttribute("viewBox",`0 0 ${nx} ${ny}`);
+  svgEl.setAttribute("preserveAspectRatio","xMidYMid meet");
+  svgEl.style.width="100%"; svgEl.style.height="100%";
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    const v=Ck[j][i],norm=v/M,fill=colormap(powerMap(norm));
+    const rect=document.createElementNS("http://www.w3.org/2000/svg","rect");
+    rect.setAttribute("x",i); rect.setAttribute("y",ny-1-j);
+    rect.setAttribute("width",1); rect.setAttribute("height",1);
+    rect.setAttribute("fill",fill); rect.setAttribute("shape-rendering","crispEdges");
+    rect.addEventListener("mousemove",ev=>showTooltip(ev,
+      `k=${k}, j=${j}, i=${i}<br>value=${v.toExponential(3)}<br>norm=${norm.toFixed(3)}`));
+    rect.addEventListener("mouseleave",hideTooltip);
+    svgEl.appendChild(rect);
+  }
+  return svgEl;
+}
+
+function renderComponentsGrid(svd){
+  const grid=document.getElementById("components-grid");
+  grid.innerHTML="";
+  const r=svd?svd.r:0,nx=state.nx,ny=state.ny;
+  const components=[],localM=[];
+  let M_global=0;
+  for(let k=0;k<r;k++){
+    const Ck=componentMatrix(svd,k); components.push(Ck);
+    let Mk=0;
+    for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const v=Math.abs(Ck[j][i]); if(v>Mk) Mk=v; }
+    localM.push(Mk);
+    if(Mk>M_global) M_global=Mk;
+  }
+  if(M_global===0) M_global=1e-12;
+  updateColorbarLabels(M_global,state.normalizeIndependently);
+
+  for(let k=0;k<MAX_SLOTS;k++){
+    const present=k<r;
+    const slot=document.createElement("div");
+    slot.className="component-slot"+(present?"":" absent");
+    const slotColor=SLOT_COLORS[k%SLOT_COLORS.length];
+    slot.style.borderTopColor=slotColor;
+
+    const label=document.createElement("div");
+    label.className="component-label";
+    label.innerHTML=`σ<sub>${k}</sub>·u<sub>${k}</sub>v<sub>${k}</sub><sup>T</sup>`;
+    slot.appendChild(label);
+
+    const canvas=document.createElement("div");
+    canvas.className="component-canvas"+(present?"":" absent");
+    if(present){
+      const M=state.normalizeIndependently?(localM[k]||1e-12):M_global;
+      canvas.appendChild(buildHeatmapSVG(components[k],nx,ny,M,k));
+    } else canvas.textContent="absent";
+    slot.appendChild(canvas);
+
+    const sigma=document.createElement("div");
+    sigma.className="component-sigma"+(present?"":" absent");
+    if(present){
+      const fracHtml=k===0?"":`<div class="frac">σ<sub>${k}</sub>/σ<sub>0</sub> = ${fracStr_(svd.S[k]/svd.S[0])}</div>`;
+      sigma.innerHTML=`<span style="color:${slotColor};font-weight:600;">σ<sub>${k}</sub></span> = ${fmtSci(svd.S[k])}`+fracHtml;
+    } else sigma.innerHTML=`σ<sub>${k}</sub> = —`;
+    slot.appendChild(sigma);
+    grid.appendChild(slot);
+  }
+}
+
+// =============================================================================
+// Scree plot
+// =============================================================================
+const SCREE_M={top:14,right:20,bottom:36,left:54},SCREE_H=150;
+let screeSVG=null,screeGPlot=null,screeGXAxis=null,screeGYAxis=null,screeGGrid=null;
+let screeWidth=0,lastSVD=null;
+
+function initScreeSVG(){
+  const cont=document.getElementById("scree-svg-container");
+  const totalW=cont.clientWidth||600;
+  screeWidth=totalW-SCREE_M.left-SCREE_M.right;
+  const totalH=SCREE_H+SCREE_M.top+SCREE_M.bottom;
+  screeSVG=d3.select(cont).append("svg").attr("width",totalW).attr("height",totalH);
+  screeSVG.append("rect").attr("width",totalW).attr("height",totalH).attr("fill","#fff");
+  screeGPlot=screeSVG.append("g").attr("transform",`translate(${SCREE_M.left},${SCREE_M.top})`);
+  screeGGrid=screeGPlot.append("g");
+  screeGXAxis=screeGPlot.append("g").attr("class","scree-axis").attr("transform",`translate(0,${SCREE_H})`);
+  screeGYAxis=screeGPlot.append("g").attr("class","scree-axis");
+  screeGPlot.append("text").attr("class","scree-axis-label")
+    .attr("x",screeWidth/2).attr("y",SCREE_H+30).attr("text-anchor","middle").text("k");
+  screeGPlot.append("text").attr("class","scree-axis-label")
+    .attr("transform","rotate(-90)").attr("x",-SCREE_H/2).attr("y",-42)
+    .attr("text-anchor","middle").text("σk");
+  new ResizeObserver(()=>resizeScree()).observe(cont);
+}
+function resizeScree(){
+  if(!screeSVG) return;
+  const cont=document.getElementById("scree-svg-container");
+  const totalW=cont.clientWidth||600;
+  screeWidth=totalW-SCREE_M.left-SCREE_M.right;
+  const totalH=SCREE_H+SCREE_M.top+SCREE_M.bottom;
+  screeSVG.attr("width",totalW).attr("height",totalH);
+  screeSVG.select("rect").attr("width",totalW).attr("height",totalH);
+  screeGPlot.select("text.scree-axis-label[text-anchor='middle']").attr("x",screeWidth/2);
+  if(lastSVD) updateScreePlot(lastSVD,false);
+}
+function updateScreePlot(svd,animate){
+  lastSVD=svd;
+  if(!screeSVG||!svd||!svd.S.length) return;
+  const S=svd.S,r=svd.r,s0=S[0]||1;
+  const xSc=d3.scaleBand().domain(d3.range(r)).range([0,screeWidth]).padding(0.25);
+  let ySc;
+  if(state.logScale){
+    const minPos=Math.min(...S.filter(s=>s>0));
+    const floor=Math.min(minPos,s0*STUB_THRESH)*0.5;
+    ySc=d3.scaleLog().domain([floor,s0*1.2]).range([SCREE_H,0]).clamp(true);
+  } else {
+    ySc=d3.scaleLinear().domain([0,s0*1.1]).range([SCREE_H,0]);
+  }
+  const yTicks=ySc.ticks?ySc.ticks(5):[];
+  const gridSel=screeGGrid.selectAll("line.scree-gridline").data(yTicks);
+  gridSel.enter().append("line").attr("class","scree-gridline")
+    .merge(gridSel).attr("x1",0).attr("x2",screeWidth)
+    .attr("y1",d=>ySc(d)).attr("y2",d=>ySc(d));
+  gridSel.exit().remove();
+  screeGXAxis.call(d3.axisBottom(xSc).tickValues(d3.range(r)).tickFormat(d=>d.toString()));
+  screeGYAxis.call(state.logScale?d3.axisLeft(ySc).ticks(5,".1e"):d3.axisLeft(ySc).ticks(5,".3g"));
+  const barData=S.slice(0,r).map((s,k)=>({k,s,stub:state.logScale&&s<s0*STUB_THRESH,color:SLOT_COLORS[k%SLOT_COLORS.length]}));
+
+  // Compute final y/height for each bar
+  function barY(d){
+    if(state.logScale){
+      return d.stub ? SCREE_H-4 : ySc(Math.max(d.s,ySc.domain()[0]));
+    }
+    return ySc(d.s);
+  }
+  function barH(d){
+    if(state.logScale){
+      return d.stub ? 4 : Math.max(0, SCREE_H - ySc(Math.max(d.s,ySc.domain()[0])));
+    }
+    return Math.max(0, SCREE_H - ySc(d.s));
+  }
+
+  const barSel=screeGPlot.selectAll("rect.scree-bar").data(barData,d=>d.k);
+
+  // Enter: create new bars at ground level (they'll transition up if animating).
+  const entered=barSel.enter().append("rect")
+    .attr("class",d=>"scree-bar"+(d.stub?" stub":""))
+    .attr("fill",d=>d.color)
+    .attr("x",d=>xSc(d.k))
+    .attr("width",xSc.bandwidth())
+    .attr("y",animate?SCREE_H:d=>barY(d))
+    .attr("height",animate?0:d=>barH(d));
+
+  // Update: set immutable attributes (x, width, class, fill) directly, without any transition.
+  barSel
+    .attr("class",d=>"scree-bar"+(d.stub?" stub":""))
+    .attr("fill",d=>d.color)
+    .attr("x",d=>xSc(d.k))
+    .attr("width",xSc.bandwidth());
+
+  // For animated renders, use a transition; otherwise, set y/height directly.
+  const merged=entered.merge(barSel);
+  if(animate){
+    merged.transition().duration(300).ease(d3.easeCubicOut)
+      .attr("y",d=>barY(d))
+      .attr("height",d=>barH(d));
+  } else {
+    merged
+      .interrupt()                    // cancel any in-flight transitions
+      .attr("y",d=>barY(d))
+      .attr("height",d=>barH(d));
+  }
+
+  // Exit: shrink to ground level and remove.
+  if(animate){
+    barSel.exit().transition().duration(300).ease(d3.easeCubicOut)
+      .attr("y",SCREE_H).attr("height",0).remove();
+  } else {
+    barSel.exit().remove();
+  }
+  screeGPlot.selectAll("rect.scree-bar")
+    .on("mousemove",function(event,d){
+      showTooltip(event,`k = ${d.k}<br>σ<sub>${d.k}</sub> = ${fmtSci(d.s)}`+
+        (d.k>0?`<br>σ<sub>${d.k}</sub>/σ<sub>0</sub> = ${fracStr_(d.s/S[0])}`:""));
+    })
+    .on("mouseleave",hideTooltip);
+}
+
+// =============================================================================
+// Numeric details panel
+// =============================================================================
+function renderNumericDetails(cov,svd){
+  const {A,categories,ax,ay,cellArea}=cov;
+  const nx=state.nx,ny=state.ny;
+  const colSums=new Array(nx).fill(0),rowSums=new Array(ny).fill(0);
+  let total=0;
+  for(let i=0;i<nx;i++) for(let j=0;j<ny;j++){ colSums[i]+=A[i][j]; rowSums[j]+=A[i][j]; total+=A[i][j]; }
+
+  const er=svd?effectiveRank(svd.S,1e-9):0;
+  const reconErr=svd?maxAbsDiff(svd.M,reconstructFromSVD(svd.U,svd.S,svd.V)):NaN;
+  document.getElementById("numeric-meta").textContent=[
+    `n_x = ${nx},  n_y = ${ny},  α_x = ${fmt(ax)},  α_y = ${fmt(ay)}`,
+    `cell area = ${fmt(cellArea)},  total coverage = ${fmt(total)}`,
+    svd?`effective rank = ${er},  reconstruction error = ${fmtSci(reconErr)} [${reconErr<1e-10?"PASS":"FAIL"}]`:"",
+  ].filter(Boolean).join("\n");
+
+  // Coverage matrix
+  let mh="<div class='sub-heading'>Coverage matrix A</div>";
+  mh+="<table><tr><th class='corner'>j\\i</th>";
+  for(let i=0;i<nx;i++) mh+=`<th>${i}</th>`;
+  mh+="<th class='sum'>Σ</th></tr>";
+  for(let j=ny-1;j>=0;j--){
+    mh+=`<tr><th>${j}</th>`;
+    for(let i=0;i<nx;i++) mh+=`<td class='cell-${categories[i][j]}'>${fmt(A[i][j])}</td>`;
+    mh+=`<td class='sum'>${fmt(rowSums[j])}</td></tr>`;
+  }
+  mh+="<tr><th class='sum'>Σ</th>";
+  for(let i=0;i<nx;i++) mh+=`<td class='sum'>${fmt(colSums[i])}</td>`;
+  mh+=`<td class='sum corner'>${fmt(total)}</td></tr></table>`;
+  document.getElementById("numeric-matrix-container").innerHTML=mh;
+
+  // Singular values row
+  if(svd){
+    const {S,r}=svd;
+    let sh="<div class='sub-heading'>Singular values σ<sub>k</sub></div>";
+    sh+=`<table id='sigma-row'><tr><th>k</th>`;
+    for(let k=0;k<r;k++) sh+=`<th>${k}</th>`;
+    sh+=`</tr><tr><th>σ<sub>k</sub></th>`;
+    for(let k=0;k<r;k++){
+      const sig=S[k]>1e-9*S[0];
+      sh+=`<td class='${sig?"sig-present":"sig-zero"}'>${fmtSci(S[k])}</td>`;
+    }
+    sh+=`</tr></table>`;
+    document.getElementById("numeric-sigma-container").innerHTML=sh;
+  }
+
+  // Left and right singular vectors: U (ny x r) and V (nx x r).
+  if(svd){
+    const {U,V,r}=svd;
+    let uvh="";
+
+    // U: rows indexed by j (printed in natural order: j = 0 ... ny-1), columns by k.
+    uvh+="<div class='sub-heading'>Left singular vectors U &nbsp;<span class='sub-note'>(columns u<sub>k</sub>, length n<sub>y</sub> = "+ny+")</span></div>";
+    uvh+="<table><tr><th class='corner'>j\\k</th>";
+    for(let k=0;k<r;k++) uvh+=`<th>u<sub>${k}</sub></th>`;
+    uvh+="</tr>";
+    for(let j=0;j<ny;j++){
+      uvh+=`<tr><th>${j}</th>`;
+      for(let k=0;k<r;k++) uvh+=`<td>${fmt(U[j][k])}</td>`;
+      uvh+="</tr>";
+    }
+    uvh+="</table>";
+
+    // V: rows indexed by i, columns by k.
+    uvh+="<div class='sub-heading'>Right singular vectors V &nbsp;<span class='sub-note'>(columns v<sub>k</sub>, length n<sub>x</sub> = "+nx+")</span></div>";
+    uvh+="<table><tr><th class='corner'>i\\k</th>";
+    for(let k=0;k<r;k++) uvh+=`<th>v<sub>${k}</sub></th>`;
+    uvh+="</tr>";
+    for(let i=0;i<nx;i++){
+      uvh+=`<tr><th>${i}</th>`;
+      for(let k=0;k<r;k++) uvh+=`<td>${fmt(V[i][k])}</td>`;
+      uvh+="</tr>";
+    }
+    uvh+="</table>";
+
+    document.getElementById("numeric-uv-container").innerHTML=uvh;
+  }
+}
+
+// =============================================================================
+// Top-level render
+// =============================================================================
+function renderAll(){
+  const cov=computeCoverage();
+  const svd=computeSVD(cov.A,state.nx,state.ny);
+  renderLattice();
+  renderCells(cov.categories);
+  renderPolygon();
+  renderVertices();
+  drawColorbar();
+  renderComponentsGrid(svd);
+  updateScreePlot(svd,false);
+  renderNumericDetails(cov,svd);
+}
+function renderDuringDrag(){
+  const cov=computeCoverage();
+  const svd=computeSVD(cov.A,state.nx,state.ny);
+  renderCells(cov.categories);
+  renderPolygon();
+  renderComponentsGrid(svd);
+  updateScreePlot(svd,false);
+  renderNumericDetails(cov,svd);
+}
+
+// =============================================================================
+// Status
+// =============================================================================
+const statusEl=document.getElementById("status");
+let statusTO=null;
+function showStatus(msg,kind){
+  statusEl.textContent=msg||"\u00A0"; statusEl.className=kind||"";
+  if(statusTO) clearTimeout(statusTO);
+  if(msg) statusTO=setTimeout(()=>{statusEl.textContent="\u00A0"; statusEl.className="";},2500);
+}
+
+// =============================================================================
+// Drag
+// =============================================================================
+let dragState=null;
+const dragBehavior=d3.drag()
+  .on("start",function(event,d){
+    d3.select(this).classed("dragging",true);
+    dragState={originalPos:{x:d.x,y:d.y},offsetX:event.x-xScale(d.x),offsetY:event.y-yScale(d.y)};
+  })
+  .on("drag",function(event,d){
+    const ux=xScaleInv(event.x-dragState.offsetX),uy=yScaleInv(event.y-dragState.offsetY);
+    d.x=Math.max(0,Math.min(1,ux)); d.y=Math.max(0,Math.min(1,uy));
+    d3.select(this).attr("cx",xScale(d.x)).attr("cy",yScale(d.y));
+    renderDuringDrag();
+  })
+  .on("end",function(event,d){
+    d3.select(this).classed("dragging",false);
+    const sn=snap(d.x,d.y);
+    const idx=state.vertices.indexOf(d);
+    const cand=state.vertices.map((v,i)=>i===idx?{...v,x:sn.x,y:sn.y}:{...v});
+    const res=validate(cand);
+    if(res.valid){ state.vertices=res.sorted; showStatus("","ok"); }
+    else{ d.x=dragState.originalPos.x; d.y=dragState.originalPos.y; showStatus(res.reason,""); }
+    dragState=null; renderAll();
+  });
+
+// =============================================================================
+// Sliders
+// =============================================================================
+const sliderNx=document.getElementById("slider-nx"),sliderNy=document.getElementById("slider-ny");
+const valueNx=document.getElementById("value-nx"),valueNy=document.getElementById("value-ny");
+function handleSliderChange(which,newVal){
+  const prev={nx:state.nx,ny:state.ny};
+  if(which==="nx") state.nx=newVal; else state.ny=newVal;
+  const cand=state.vertices.map(v=>v.role==="origin"?{...v}:{...v,...snap(v.x,v.y)});
+  const res=validate(cand);
+  if(res.valid){
+    state.vertices=res.sorted;
+    if(which==="nx") valueNx.textContent=state.nx; else valueNy.textContent=state.ny;
+    showStatus("","");
+  } else {
+    state.nx=prev.nx; state.ny=prev.ny;
+    sliderNx.value=state.nx; sliderNy.value=state.ny;
+    valueNx.textContent=state.nx; valueNy.textContent=state.ny;
+    showStatus("Slider change rejected: "+res.reason,"");
+  }
+  renderAll();
+}
+sliderNx.addEventListener("input",e=>handleSliderChange("nx",+e.target.value));
+sliderNy.addEventListener("input",e=>handleSliderChange("ny",+e.target.value));
+
+// =============================================================================
+// Reset button
+// =============================================================================
+document.getElementById("reset-btn").addEventListener("click",()=>{
+  state.nx=DEFAULT_NX; state.ny=DEFAULT_NY;
+  state.vertices=DEFAULT_VERTICES();
+  sliderNx.value=DEFAULT_NX; sliderNy.value=DEFAULT_NY;
+  valueNx.textContent=DEFAULT_NX; valueNy.textContent=DEFAULT_NY;
+  showStatus("Reset to default.","ok");
+  renderAll();
+});
+
+// =============================================================================
+// Normalize toggle
+// =============================================================================
+document.getElementById("normalize-cb").addEventListener("change",function(){
+  state.normalizeIndependently=this.checked;
+  renderAll();
+});
+
+// =============================================================================
+// Scree scale toggle
+// =============================================================================
+document.getElementById("scree-toggle-btn").addEventListener("click",()=>{
+  state.logScale=!state.logScale;
+  document.getElementById("scree-toggle-btn").textContent=
+    state.logScale?"Switch to linear scale":"Switch to log scale";
+  if(lastSVD) updateScreePlot(lastSVD,true);
+});
+
+// =============================================================================
+// Boot
+// =============================================================================
+initScreeSVG();
+renderAll();
+</script>
+</body>
+</html>
