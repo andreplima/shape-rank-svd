@@ -3,7 +3,7 @@
 
 Did you know that there is a relationship between the shape of a polygon and matrix rank? **Shape-Rank-SVD** is an interactive applet that makes this connection tangible. Drag the corners of a polygon, watch its coverage matrix change and decompose, and see the rank emerge from — or collapse into — the shape itself.
 
-Why should anyone care about this relationship? Interpretability has become a mandatory feature of AI applications in many domains. A diagram that *faithfully* depicts what a learning algorithm does promotes its interpretability, offering a route to understanding that avoids post-hoc rationalisations. [We explore such diagrams in our research](https://github.com/andreplima/polygrid). To ensure faithfulness, we use a diagram as a template to extract a feature matrix $S$ from the original data $X$, and train a linear model $SW=Y$to solve the task in hand. Since the rank of the feature matrix plays an important role in the solvability of the linear system, we should seek for diagrams that can somehow extract high-rank feature matrix. This applet aims to develop the basic intuition behind this mechanism.
+Why should anyone care about this relationship? Interpretability has become a mandatory feature of AI applications in many domains. A diagram that *faithfully* depicts what a learning algorithm does promotes its interpretability, offering a route to understanding that avoids post-hoc rationalisations. [We explore such diagrams in our research](https://github.com/andreplima/polygrid). To ensure faithfulness, we use a diagram as a template to extract a feature matrix $S$ from the original data $X$, and train a linear model $SW=Y$ to solve the task in hand. Since the rank of the feature matrix plays an important role in the solvability of the linear system, we should seek for diagrams that can somehow extract high-rank feature matrix. This applet aims to develop the basic intuition behind this mechanism.
 
 
 
@@ -13,14 +13,14 @@ Why should anyone care about this relationship? Interpretability has become a ma
 
 ## What the applet shows
 
-Suppose your data $X \in (0,1]^{m \times d}, d \geq 2$, and select an arbitrary row $i$ and two arbitrary colums $(k,l)$.  Let's represent the pair $(x_{ik}, x_{il})$ by a polygon instead of a point. Let $P$ be a polygon anchored at the origin inside the unit square, and consider a lattice that partitions $[0,1]^2$ into $n_x \times n_y$ cells. The **coverage matrix** $A$ records, for each cell, the area of its intersection with $P$:
+Suppose your data $X \in (0,1]^{m \times d}, d \geq 2$, and select an arbitrary row $i$ and two arbitrary colums $(k,l)$.  Let's represent the pair $(x_{ik}, x_{il})$ by a polygon instead of a point (as we would usually do). Let $P$ be a polygon anchored at the origin inside the unit square, and consider a lattice that partitions $[0,1]^2$ into $n_x \times n_y$ cells. The **coverage matrix** $A$ records, for each cell, the area of its intersection with $P$:
 
 $$a_{ij} = \mathrm{area}\bigl(P \cap C_{ij}\bigr)$$
 
 The applet lets the user drag the vertices of $P$ on a lattice joint, change the lattice resolution with two sliders, and see in real time:
 
 - the cells covered by $P$ (fully, partially, not at all),
-- the coverage matrix $A$ and its singular value decomposition $A = U\,\mathrm{diag}(\sigma)\,V^\top$,
+- the coverage matrix $A$ and its singular value decomposition $A = U \mathrm{diag}(\sigma) \mathrm{ } V^\top$,
 - the rank-1 components $\sigma_k \mathbf{u}_k \mathbf{v}_k^\top$, rendered as heatmaps,
 - the singular value spectrum as a scree plot, on linear or log scale.
 
