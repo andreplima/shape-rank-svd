@@ -88,8 +88,12 @@
     #reset-btn:hover { background: #f0f0f0; }
 
     /* Legend */
-    #legend { width: 100%; font-size: var(--fs-meta); color: #666; display: flex; flex-direction: column; gap: 3px; }
-    .legend-row { display: flex; align-items: center; gap: 6px; }
+    #legend {
+      width: 100%; font-size: var(--fs-meta); color: #666;
+      display: flex; flex-direction: row; flex-wrap: wrap;
+      column-gap: 14px; row-gap: 4px;
+    }
+    .legend-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
     .legend-swatch { width: 13px; height: 13px; border: 1px solid #ccc; }
     .legend-swatch.full    { background: rgba(212,0,160,0.18); }
     .legend-swatch.partial {
@@ -109,6 +113,22 @@
       flex-direction: column;
       gap: 14px;
     }
+    #left-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      width: 100%;
+    }
+    #left-panel-header .panel-title { align-self: baseline; }
+    #instructions-link {
+      font-size: var(--fs-meta);
+      color: #2b7cff;
+      text-decoration: none;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    #instructions-link:hover { text-decoration: underline; }
 
     /* Colorbar */
     #colorbar-row {
@@ -272,7 +292,12 @@
 
   <!-- ==================== LEFT PANEL ==================== -->
   <div id="left-panel">
-    <div class="panel-title">Shape &amp; lattice</div>
+    <div id="left-panel-header">
+      <div class="panel-title">Shape &amp; lattice</div>
+      <a id="instructions-link"
+         href="https://github.com/andreplima/shape-rank-svd"
+         target="_blank" rel="noopener noreferrer">Instructions ↗</a>
+    </div>
 
     <div id="left-svg-container">
       <svg id="left-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
