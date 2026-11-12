@@ -72,7 +72,10 @@ There is no build step, no server, no toolchain. The whole applet runs client-si
 ```
 index.html     # the applet
 README.md      # this file
+SPEC.md        # functional and technical specification
+LICENSE        # CC BY-NC-SA 4.0 license text
 ```
+
 
 That's it.
 
