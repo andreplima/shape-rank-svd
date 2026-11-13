@@ -394,11 +394,11 @@
         <div class="exercise">
           <div class="ex-number">Exercise 2 — Breaking separability</div>
           <div class="ex-prompt">
-            Start from the axis-aligned rectangle of Exercise 1. Drag one vertex sideways
-            (keeping it on a lattice joint) to turn the rectangle into a <em>parallelogram</em>.
+            Start from the axis-aligned rectangle of Exercise 1. Drag the top vertices sideways
+            to turn the rectangle into a <em>parallelogram</em>.
             Watch the scree plot as you drag. Which singular values change? Does the spectrum
-            decay quickly or slowly after σ<sub>0</sub>? Toggle between linear and log scale
-            to get a clearer picture.
+            decay quickly or slowly after σ<sub>0</sub>? Toggle the scree plot between linear 
+            and log scale to get a clearer picture.
           </div>
           <details class="hint">
             <summary>Show hint</summary>
@@ -415,8 +415,8 @@
         <div class="exercise">
           <div class="ex-number">Exercise 3 — The triangle</div>
           <div class="ex-prompt">
-            Make three of the four vertices collinear so that the polygon degenerates into a
-            <em>triangle</em>. Compare the singular value spectrum with the parallelogram case.
+            Make three of the four vertices collinear so that the polygon becomes a <em>right triangle</em>. 
+            Compare the singular value spectrum with the parallelogram case.
             Is the effective rank higher or lower? Enable "Normalize each component independently"
             and inspect the structure of the higher-index heatmaps — what spatial patterns do you see?
           </div>
@@ -435,11 +435,11 @@
         <div class="exercise">
           <div class="ex-number">Exercise 4 — Resolution and rank</div>
           <div class="ex-prompt">
-            Fix the polygon as the default parallelogram. Increase n<sub>x</sub> and n<sub>y</sub>
-            from 2 to 10 and observe how the effective rank (number of nonzero σ<sub>k</sub>)
-            changes. Does the spectrum become richer or sparser as the lattice gets finer?
-            What does this tell you about the relationship between lattice resolution and
-            the complexity of the coverage matrix?
+            Make the right triangle of the previous exercise as large as possible. Increase 
+            n<sub>x</sub> and n<sub>y</sub> from 2 to 10 and observe how the effective rank 
+            (number of nonzero σ<sub>k</sub>) changes. Does the spectrum become richer or 
+            sparser as the lattice gets finer? What does this tell you about the relationship 
+            between the lattice resolution and the rank of the coverage matrix?
           </div>
           <details class="hint">
             <summary>Show hint</summary>
@@ -448,7 +448,7 @@
               distinct partial-coverage values. The coverage matrix can support up to
               min(n<sub>x</sub>, n<sub>y</sub>) singular values, and more of them become
               meaningful at higher resolution. At low n (coarse lattice), the matrix is
-              nearly rank-1 even for a parallelogram, because there are too few boundary
+              nearly rank-1 even for a right triangle, because there are too few boundary
               cells to generate complex structure.
             </div>
           </details>
